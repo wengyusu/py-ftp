@@ -103,3 +103,8 @@ venv.bak/
 # mypy
 .mypy_cache/
 desktop.ini
+Lib/
+Include/
+Scripts/
+tcl/
+pip-selfcheck.json
