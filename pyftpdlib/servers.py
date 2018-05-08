@@ -237,7 +237,7 @@ class FTPServer(Acceptor):
             ip = addr[0]
             self.ip_map.append(ip)  
 
-            #customed 
+            #customed whitelist & blacklist 
 
             if self.whitelist != []:
                 if ip in self.whitelist:

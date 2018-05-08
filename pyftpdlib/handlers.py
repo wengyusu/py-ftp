@@ -877,7 +877,8 @@ class DTPHandler(AsyncChat):
                 self.close()
 
     def close(self):
-        global total_receive
+        #customed traffic statics
+        global total_receive #设置两个全局变量，每次数据通道关闭时统计一次流量
         global total_send
         """Close the data channel, first attempting to close any remaining
         file handles."""
