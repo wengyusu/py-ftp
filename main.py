@@ -56,6 +56,7 @@ def main():
     server.max_cons = 256
     server.max_cons_per_ip = 5
 
+    # add blacklist
     server.blacklist=['127.0.0.1']
 
     # start ftp server
