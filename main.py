@@ -24,7 +24,9 @@ import os
 from pyftpdlib.authorizers import DummyAuthorizer
 from pyftpdlib.handlers import FTPHandler
 from pyftpdlib.servers import FTPServer
-
+ 
+blacklist = []
+whitelist = []
 def main():
     # Instantiate a dummy authorizer for managing 'virtual' users
     authorizer = DummyAuthorizer()
@@ -53,6 +55,8 @@ def main():
     # set a limit for connections
     server.max_cons = 256
     server.max_cons_per_ip = 5
+
+    server.blacklist=['127.0.0.1']
 
     # start ftp server
     server.serve_forever()
