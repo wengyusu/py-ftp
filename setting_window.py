@@ -25,6 +25,7 @@ class SettingWindow(QDialog):
         super(SettingWindow, self).__init__()
         self.setModal(True)
         self.setWindowTitle('Settings')
+        self.setFixedSize(800, 350)
 
         self.genePage = GeneralPage()
         self.filterPage = FilterPage()
@@ -37,7 +38,6 @@ class SettingWindow(QDialog):
         self.initButtons()
 
         self.leftLayout = QVBoxLayout()
-        self.leftLayout.addStretch()
         self.leftLayout.addWidget(self.columnTree)
         self.leftLayout.addWidget(self.buttonBox)
 
@@ -46,6 +46,8 @@ class SettingWindow(QDialog):
         self.mainLayout = QHBoxLayout()
         self.mainLayout.addLayout(self.leftLayout)
         self.mainLayout.addLayout(self.rightLayout)
+        self.mainLayout.setStretchFactor(self.leftLayout, 1)
+        self.mainLayout.setStretchFactor(self.rightLayout, 2)
 
         self.setLayout(self.mainLayout)
 
@@ -107,6 +109,8 @@ class SettingWindow(QDialog):
             pass
 
         self.mainLayout.addLayout(self.rightLayout)
+        self.mainLayout.setStretchFactor(self.leftLayout, 1)
+        self.mainLayout.setStretchFactor(self.rightLayout, 2)
 
     def initButtons(self):
         self.buttonBox = QGroupBox()

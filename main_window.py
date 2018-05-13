@@ -64,10 +64,12 @@ class ServerMainWindow(QMainWindow):
         self.startAct = QAction(QIcon('resource/start.png'), 'Start server', self)
         self.startAct.setStatusTip('Starts PyFTP Server')
         self.startAct.triggered.connect(self.startTriggered)
+        self.startAct.setEnabled(True)
 
         self.stopAct = QAction(QIcon('resource/stop.png'), 'Stop server', self)
         self.stopAct.setStatusTip('Stops the server')
         self.stopAct.triggered.connect(self.stopTriggered)
+        self.stopAct.setEnabled(False)
 
         self.quitAct = QAction(QIcon('resource/quit.png'), 'Quit', self)
         self.quitAct.setStatusTip('Quits FTP Server')
@@ -141,6 +143,8 @@ class ServerMainWindow(QMainWindow):
         self.centralWidget.setLayout(self.mainLayout)
 
     def startTriggered(self):
+        self.startAct.setEnabled(False)
+        self.stopAct.setEnabled(True)
 
         # 槽函数
         # 判断是否启动成功。若启动成功，显示成功信息，否则显示失败信息
@@ -150,6 +154,8 @@ class ServerMainWindow(QMainWindow):
         pass
 
     def stopTriggered(self):
+        self.startAct.setEnabled(True)
+        self.stopAct.setEnabled(False)
 
         # 槽函数
         # 判断是否停止成功。若停止成功，显示成功信息，否则显示失败信息
@@ -196,7 +202,7 @@ class ServerMainWindow(QMainWindow):
         pass
 
 
-class FlowWidget(QGroupBox):
+class FlowWidget(QWidget):
 
     layout = None
     label11 = None
@@ -228,5 +234,9 @@ class FlowWidget(QGroupBox):
         layout.addWidget(self.label21, 1, 0)
         layout.addWidget(self.label22, 1, 1)
         layout.addWidget(self.label23, 1, 2)
+
+        layout.setColumnMinimumWidth(0, 120)
+        layout.setColumnMinimumWidth(1, 30)
+        layout.setColumnMinimumWidth(2, 30)
 
         self.setLayout(layout)
