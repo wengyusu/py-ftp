@@ -1,6 +1,7 @@
 from PyQt5.QtWidgets import QMessageBox, QAbstractItemView, QLineEdit, QTableWidget, QTableWidgetItem, QLabel, QDialog, QGroupBox, QPushButton, QHBoxLayout, QVBoxLayout
 from user_pages import UserPage, FirstPage
 from PyQt5.QtGui import QPixmap
+from setting_msg_box import SettingMessage
 import json
 
 
@@ -189,6 +190,10 @@ class UserWindow(QDialog):
 
     def okTriggered(self):
         self.updateSetting()
+
+        msg = SettingMessage()
+        msg.exec()
+
         self.close()
 
     def cancelTriggered(self):
