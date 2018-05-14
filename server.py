@@ -1,11 +1,22 @@
 import asyncio
 import os
 import logging
-PYTHONASYNCIODEBUG=1
-logging.basicConfig(level=logging.DEBUG)
-class FTPServer:
-    def __init__(self,host,port):
-        self.loop = asyncio.get_event_loop()
+from PyQt5.QtCore import *
+# PYTHONASYNCIODEBUG=1
+# logging.basicConfig(level=logging.DEBUG)
+class FTPServer(QObject):
+    begin = pyqtSignal()
+    stop = pyqtSignal()
+    onconnect = pyqtSignal()
+    upload = pyqtSignal(str)
+    download = pyqtSignal(str)
+    def __init__(self, host="127.0.0.1", port=21, parent=None,whitelist=[],blacklist=[],timeout=60.0):
+        super(FTPServer, self).__init__(parent)
+        self.whitelist = whitelist
+        self.blacklist = blacklist
+        self.timeout = timeout
+        self.loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(self.loop)
         self.username_info=[{
             "user": "user",
             "pass":"12345"
@@ -26,6 +37,7 @@ class FTPServer:
             "NOOP": "noop",
             "PWD": "pwd",
             }
+        self.addr = ""
         self.host = host
         self.port = port
         self.username = None
@@ -43,49 +55,52 @@ class FTPServer:
         data = "220 welcome.\r\n".encode()
         print(data)
         self.writer.write(data)
-        addr = self.writer.get_extra_info('peername')
+        self.addr = self.writer.get_extra_info('peername')
+        self.onconnect.emit()
         self.host = self.writer.get_extra_info('sockname')
-        self.ip_handle(addr)
-        await self.writer.drain()
-        while True:
-            data = await self.reader.readline()
-            if not data:
-                raise ConnectionResetError
-            self.message = data.decode().replace("\r\n","").split(' ')
-            print("Received {} from {}".format(self.message, addr))
-            if not data:
-                print("break")
-                break
-
-            if self.message[0] not in self.command_list.keys():
-                self.respond("500"," Command \"%s\" not understood." % self.message[0])
-            else:
-                # command_list.get(self.message[0])()
-                if self.message[0] == "USER":
-                    self.user()
-                if self.message[0] == "PASS":
-                    self.password()
-                if self.message[0] == "PWD":
-                    self.pwd()
-                if self.message[0] == "TYPE":
-                    self.type()
-                if self.message[0] == "PASV":
-                    await self.pasv()
-                if self.message[0] == "LIST":
-                    await self.list()                    
-
-                if self.message[0] == "CWD":
-                    self.cwd()
-
-                if self.message[0] == "RETR":
-                    await self.retr()
-
-                if self.message[0] == "STOR":
-                    await self.stor()
-
+        if self.ip_handle(self.addr):
             await self.writer.drain()
-        print("Close the client socket")
-        self.writer.close()
+            while True:
+                data = await asyncio.wait_for(self.reader.readline(),self.timeout)
+                if not data:
+                    raise ConnectionResetError
+                self.message = data.decode().replace("\r\n","").split(' ')
+                print("Received {} from {}".format(self.message, self.addr))
+                if not data:
+                    print("break")
+                    break
+
+                if self.message[0] not in self.command_list.keys():
+                    self.respond("500"," Command \"%s\" not understood." % self.message[0])
+                else:
+                    # command_list.get(self.message[0])()
+                    if self.message[0] == "USER":
+                        self.user()
+                    if self.message[0] == "PASS":
+                        self.password()
+                    if self.message[0] == "PWD":
+                        self.pwd()
+                    if self.message[0] == "TYPE":
+                        self.type()
+                    if self.message[0] == "PASV":
+                        await self.pasv()
+                    if self.message[0] == "LIST":
+                        await self.list()                    
+
+                    if self.message[0] == "CWD":
+                        self.cwd()
+
+                    if self.message[0] == "RETR":
+                        await self.retr()
+
+                    if self.message[0] == "STOR":
+                        await self.stor()
+
+                await self.writer.drain()
+            print("Close the client socket")
+            self.writer.close()
+        else:
+            self.writer.close()
 
     async def dtp_handler(self, reader, writer):
         data=""
@@ -96,7 +111,8 @@ class FTPServer:
             if os.path.isdir(p):
                 data = data + "drwxr-xr-x 1 owner group           1 Aug 26 16:31 " +  p + " \r\n"
             else:
-                data = data + "-rw-r--r-- 1 owner group           1 Aug 26 16:31 " + p + " \r\n"
+                size=os.path.getsize(p)
+                data = data + "-rw-r--r-- 1 owner group           {} Aug 26 16:31 ".format(size) + p + " \r\n"
         print(data)
         writer.write(data.encode())
         await self.writer.drain()
@@ -108,6 +124,9 @@ class FTPServer:
 
     async def retr_handler(self, reader, writer):
         file = self.retr_file
+        size = os.path.getsize(file)
+        print(size)
+        self.download.emit(str(size))
         with open(file, 'r') as f:
             data = f.readlines()
         data = '\r\n'.join(data)
@@ -120,6 +139,8 @@ class FTPServer:
     async def stor_handler(self, reader, writer):
         file = self.stor_file
         data = await reader.read()
+        size = len(data)
+        self.upload.emit(str(size))
         print(data)
         with open(file, 'wb') as f:
             f.write(data)
@@ -215,8 +236,15 @@ class FTPServer:
         self.available_port = None
 
     def ip_handle(self,ip):
-        pass
+        if self.whitelist != []:
+            if ip not in self.whitelist:
+                return False
+        else:
+            if ip in self.blacklist:
+                return False
+        return True
 
+    @pyqtSlot()
     def start(self):
         coro = asyncio.start_server(self.handle_echo, self.host, self.port, loop=self.loop)
         self.server = self.loop.run_until_complete(coro)
@@ -229,10 +257,11 @@ class FTPServer:
             self.close()
 
         # Close the server
+    @pyqtSlot()
     def close(self):
-        server.close()
-        self.loop.run_until_complete(self.server.wait_closed())
-        self.loop.close()
+        self.server.close()
+        # self.loop.run_until_complete(self.server.wait_closed())
+        # self.loop.close()
 
 if __name__ == '__main__':
     server = FTPServer(host="127.0.0.1",port=21)
