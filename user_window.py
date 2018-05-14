@@ -1,6 +1,7 @@
 from PyQt5.QtWidgets import QMessageBox, QAbstractItemView, QLineEdit, QTableWidget, QTableWidgetItem, QLabel, QDialog, QGroupBox, QPushButton, QHBoxLayout, QVBoxLayout
 from user_pages import UserPage, FirstPage
 from PyQt5.QtGui import QPixmap
+from setting_msg_box import SettingMessage
 import json
 
 
@@ -33,6 +34,7 @@ class UserWindow(QDialog):
         super(UserWindow, self).__init__()
         self.setModal(True)
         self.setWindowTitle('Settings')
+        self.setFixedSize(600, 400)
 
         self.userPage = UserPage()
         self.initLayout = FirstPage()
@@ -58,6 +60,8 @@ class UserWindow(QDialog):
         self.mainLayout = QHBoxLayout()
         self.mainLayout.addLayout(self.leftLayout)
         self.mainLayout.addLayout(self.rightLayout)
+        self.mainLayout.setStretchFactor(self.leftLayout, 1)
+        self.mainLayout.setStretchFactor(self.rightLayout, 2)
 
         self.setLayout(self.mainLayout)
 
@@ -88,6 +92,8 @@ class UserWindow(QDialog):
                 break
 
         self.mainLayout.addLayout(self.rightLayout)
+        self.mainLayout.setStretchFactor(self.leftLayout, 1)
+        self.mainLayout.setStretchFactor(self.rightLayout, 2)
         self.rightLayout.accountSettingBox.show()
         self.rightLayout.sharedFolderBox.show()
 
@@ -118,10 +124,11 @@ class UserWindow(QDialog):
     def addOKTriggered(self):
         name = self.addUserDialog.userNameEdit.text()
 
+        icon = QPixmap('resource/fail.png')
         if name == '':
             box1 = QMessageBox()
             box1.setText('Please enter a name.')
-            box1.setIconPixmap(QPixmap('resource/fail.png'))
+            box1.setIconPixmap(icon.scaled(100, 100))
             box1.exec()
             return
 
@@ -130,7 +137,7 @@ class UserWindow(QDialog):
             if name == item.text():
                 box2 = QMessageBox()
                 box2.setText('User %s has existed.' % name)
-                box2.setIconPixmap(QPixmap('resource/fail.png'))
+                box2.setIconPixmap(icon.scaled(100, 100))
                 box2.exec()
                 return
 
@@ -183,6 +190,10 @@ class UserWindow(QDialog):
 
     def okTriggered(self):
         self.updateSetting()
+
+        msg = SettingMessage()
+        msg.exec()
+
         self.close()
 
     def cancelTriggered(self):
