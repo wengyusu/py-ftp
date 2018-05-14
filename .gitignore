@@ -108,3 +108,4 @@ Include/
 Scripts/
 tcl/
 pip-selfcheck.json
+.vscode/settings.json
