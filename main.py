@@ -24,43 +24,53 @@ import os
 from pyftpdlib.authorizers import DummyAuthorizer
 from pyftpdlib.handlers import FTPHandler
 from pyftpdlib.servers import FTPServer
- 
-blacklist = []
-whitelist = []
-def main():
-    # Instantiate a dummy authorizer for managing 'virtual' users
-    authorizer = DummyAuthorizer()
 
-    # Define a new user having full r/w permissions and a read-only
-    # anonymous user
-    authorizer.add_user('user', '12345', '.', perm='elradfmwMT')
-    authorizer.add_anonymous(os.getcwd())
+class FTP:
+    def __init__(self, host="127.0.0.1", port=21, blacklist=[], whitelist=[]):
+        self.host = host
+        self.port = port
+        self.blacklist = blacklist
+        self.whitelist = whitelist
+        # Instantiate a dummy authorizer for managing 'virtual' users
+        authorizer = DummyAuthorizer()
 
-    # Instantiate FTP handler class
-    handler = FTPHandler
-    handler.authorizer = authorizer
+        # Define a new user having full r/w permissions and a read-only
+        # anonymous user
+        authorizer.add_user('user', '12345', '.', perm='elradfmwMT')
+        authorizer.add_anonymous(os.getcwd())
 
-    # Define a customized banner (string returned when client connects)
-    handler.banner = "pyftpdlib based ftpd ready."
+        # Instantiate FTP handler class
+        handler = FTPHandler
+        handler.authorizer = authorizer
 
-    # Specify a masquerade address and the range of ports to use for
-    # passive connections.  Decomment in case you're behind a NAT.
-    #handler.masquerade_address = '151.25.42.11'
-    #handler.passive_ports = range(60000, 65535)
+        # Define a customized banner (string returned when client connects)
+        handler.banner = "pyftpdlib based ftpd ready."
 
-    # Instantiate FTP server class and listen on 0.0.0.0:2121
-    address = ('0.0.0.0', 21)
-    server = FTPServer(address, handler)
+        # Specify a masquerade address and the range of ports to use for
+        # passive connections.  Decomment in case you're behind a NAT.
+        #handler.masquerade_address = '151.25.42.11'
+        #handler.passive_ports = range(60000, 65535)
 
-    # set a limit for connections
-    server.max_cons = 256
-    server.max_cons_per_ip = 5
+        # Instantiate FTP server class and listen on 0.0.0.0:2121
+        
+        address = (self.host, self.port)
+        self.server = FTPServer(address, handler)
+
+        # set a limit for connections
+        self.server.max_cons = 256
+        self.server.max_cons_per_ip = 5
 
     # add blacklist
-    # server.blacklist=['127.0.0.1']
+        self.server.blacklist = self.blacklist
+        self.server.whitelist = self.whitelist
 
     # start ftp server
-    server.serve_forever()
+    def start(self):
+        self.server.serve_forever()
+
+    def close(self):
+        self.server.close()
 
 if __name__ == '__main__':
-    main()
+    ftpserver = FTP()
+    ftpserver.start()
