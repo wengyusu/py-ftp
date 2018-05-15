@@ -148,11 +148,11 @@ class SettingWindow(QDialog):
 
         allowedList = load_j['IPAllowed']
         for item in allowedList:
-            self.filterPage.editAllowed.append(item['IP'])
+            self.filterPage.editAllowed.append(item)
 
         bannedList = load_j['IPBanned']
         for item in bannedList:
-            self.filterPage.editBanned.append(item['IP'])
+            self.filterPage.editBanned.append(item)
 
         if load_j['DownloadSpeedLimit'] == 0:
             self.speedPage.noLimitButton1.setChecked(True)
@@ -183,13 +183,13 @@ class SettingWindow(QDialog):
             allowedList = self.filterPage.editAllowed.toPlainText().split('\n')
             allowedJsonList = []
             for item in allowedList:
-                allowedJsonList.append({"IP": item})
+                allowedJsonList.append(item)
             lw_j['IPAllowed'] = allowedJsonList
 
             bannedList = self.filterPage.editBanned.toPlainText().split('\n')
             bannedJsonList = []
             for item in bannedList:
-                bannedJsonList.append({"IP": item})
+                bannedJsonList.append(item)
             lw_j['IPBanned'] = bannedJsonList
 
             if self.speedPage.noLimitButton1.isChecked() == True:
