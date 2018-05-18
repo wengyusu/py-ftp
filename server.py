@@ -7,10 +7,11 @@ from PyQt5.QtCore import *
 class FTPServer(QObject):
     begin = pyqtSignal()
     stop = pyqtSignal()
-    onconnect = pyqtSignal()
+    onconnect = pyqtSignal(str,str)
     upload = pyqtSignal(str)
     download = pyqtSignal(str)
-    def __init__(self, host="127.0.0.1", port=21, parent=None,whitelist=[],blacklist=[],timeout=60.0):
+    disconnect = pyqtSignal(str,str)
+    def __init__(self, host="0.0.0.0", port=21, parent=None,whitelist=[],blacklist=[],timeout=60.0):
         super(FTPServer, self).__init__(parent)
         self.whitelist = whitelist
         self.blacklist = blacklist
@@ -56,9 +57,8 @@ class FTPServer(QObject):
         print(data)
         self.writer.write(data)
         self.addr = self.writer.get_extra_info('peername')
-        self.onconnect.emit()
         self.host = self.writer.get_extra_info('sockname')
-        if self.ip_handle(self.addr):
+        if self.ip_handle(self.addr[0]):
             await self.writer.drain()
             while True:
                 data = await asyncio.wait_for(self.reader.readline(),self.timeout)
@@ -99,19 +99,22 @@ class FTPServer(QObject):
                 await self.writer.drain()
             print("Close the client socket")
             self.writer.close()
+            self.disconnect.emit(self.username,self.addr[0])
         else:
             self.writer.close()
 
     async def dtp_handler(self, reader, writer):
+        self.respond("150" ,"File status okay. About to open data connection.")
         data=""
         # if self.path == '/':
         #     self.path = os.getcwd()
-        path = os.listdir('.'+self.path)
+        path = os.listdir('./' + self.path)
+        print(self.path)
         for p in path:
             if os.path.isdir(p):
                 data = data + "drwxr-xr-x 1 owner group           1 Aug 26 16:31 " +  p + " \r\n"
             else:
-                size=os.path.getsize(p)
+                size=os.path.getsize(os.path.join('./'+self.path, p))
                 data = data + "-rw-r--r-- 1 owner group           {} Aug 26 16:31 ".format(size) + p + " \r\n"
         print(data)
         writer.write(data.encode())
@@ -123,6 +126,7 @@ class FTPServer(QObject):
         self.passive_server.close()
 
     async def retr_handler(self, reader, writer):
+        self.respond("150" ,"File status okay. About to open data connection.")
         file = self.retr_file
         size = os.path.getsize(file)
         print(size)
@@ -137,6 +141,7 @@ class FTPServer(QObject):
         self.passive_server.close()
 
     async def stor_handler(self, reader, writer):
+        self.respond("150" ,"File status okay. About to open data connection.")
         file = self.stor_file
         data = await reader.read()
         size = len(data)
@@ -160,7 +165,9 @@ class FTPServer(QObject):
             self.username = self.message[1]
         else:
             self.respond("530", "Not logged in.")
-            self.username = None 
+            self.username = None
+        if self.username is not None:
+            self.onconnect.emit(self.username,self.addr[0]) 
 
     def user_check(self, user):
         if user == "anonymous":
@@ -180,11 +187,8 @@ class FTPServer(QObject):
         else:
             self.respond("331","Password wrong")
     async def list(self):
-        self.respond("150" ,"File status okay. About to open data connection.")
         if len(self.message) > 1:
             self.path = self.message[1]
-        if self.available_port is not None:
-            self.passive_server = await asyncio.start_server(self.dtp_handler, host=self.host[0], port=self.available_port, loop=self.loop)
         self.data_ports.put_nowait(self.available_port)
         self.available_port = None
 
@@ -192,15 +196,18 @@ class FTPServer(QObject):
         self.respond("250" ,"\"{}\" is the current directory.".format(self.path))
 
     def cwd(self):
-        if self.message[1] != '/':
+        if self.message[1] != "/":
             if self.message[1] == '..':
-                path = self.path.split('/')
-                path.pop()
-                self.path = '/'.join(path)
+                path = os.path.split(self.path)
+                self.path = path[0]
             else:
-                self.path =  self.message[1]
+                if self.message[1].startswith('/'):
+                    self.path = self.message[1]
+                else:
+                    self.path = self.path + self.message[1]
         else:
             self.path = '/'
+        print(self.path)
         self.pwd()
 
     def type(self):
@@ -211,7 +218,6 @@ class FTPServer(QObject):
         self.respond("200","Type set to: {}.".format(t))
 
     async def retr(self):
-        self.respond("150" ,"File status okay. About to open data connection.")
         self.retr_file = self.message[1]
         if self.available_port is not None:
             self.passive_server = await asyncio.start_server(self.retr_handler, host=self.host[0], port=self.available_port, loop=self.loop)
@@ -225,9 +231,10 @@ class FTPServer(QObject):
         self.available_port = await self.data_ports.get()
         addr = "({},{},{},{},{},{})".format(*host,int(self.available_port)// 2**8,self.available_port % (2**8))
         self.respond("227" ,"Entering passive mode {}.".format(addr))
+        if self.available_port is not None:
+            self.passive_server = await asyncio.start_server(self.dtp_handler, host=self.host[0], port=self.available_port, loop=self.loop)
 
     async def stor(self):
-        self.respond("150" ,"File status okay. About to open data connection.")
         self.stor_file = self.message[1]
         if self.available_port is not None:
             self.passive_server = await asyncio.start_server(self.stor_handler, host=self.host[0], port=self.available_port, loop=self.loop)
@@ -235,7 +242,7 @@ class FTPServer(QObject):
         self.data_ports.put_nowait(self.available_port)
         self.available_port = None
 
-    def ip_handle(self,ip):
+    def ip_handle(self, ip):
         if self.whitelist != []:
             if ip not in self.whitelist:
                 return False
@@ -264,7 +271,7 @@ class FTPServer(QObject):
         # self.loop.close()
 
 if __name__ == '__main__':
-    server = FTPServer(host="127.0.0.1",port=21)
+    server = FTPServer(host="0.0.0.0",port=21)
     try:
         server.start()
     except KeyboardInterrupt:

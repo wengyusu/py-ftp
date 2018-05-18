@@ -1,4 +1,4 @@
-from PyQt5.QtWidgets import QGroupBox, QHBoxLayout, QGridLayout, QLabel, QAbstractItemView, QMainWindow, QAction, qApp ,QTextEdit, QVBoxLayout, QWidget, QTableWidget
+from PyQt5.QtWidgets import QGroupBox, QHBoxLayout, QGridLayout, QLabel, QAbstractItemView, QMainWindow, QAction, qApp ,QTextEdit, QVBoxLayout, QWidget, QTableWidget,QTableWidgetItem
 from PyQt5.QtGui import QIcon
 from PyQt5.QtCore import *   
 import about_msg_box
@@ -195,8 +195,8 @@ class ServerMainWindow(QMainWindow):
             with open("setting.json", 'r') as f:
                 config = json.load(f)
                 port = config['Port']
-                # whitelist = config['IPAllowed'].values()
-                # blacklist = config['IPBanned'].values()
+                whitelist = config['IPAllowed']
+                blacklist = config['IPBanned']
 
             self.server = server.FTPServer(port=port,whitelist=whitelist,blacklist=blacklist,timeout=60.0)
             self.server.moveToThread(self.thread)
@@ -255,9 +255,12 @@ class ServerMainWindow(QMainWindow):
 
         pass
 
-    def addConnectionItem(self):
+    def addConnectionItem(self,name,addr):
+        item1 = QTableWidgetItem(name)
+        item2 = QTableWidgetItem(addr)
         self.connectList.setRowCount(self.connectList.rowCount() + 1)
-        print("add connect")
+        self.connectList.setItem(self.connectList.rowCount() - 1, 0, item1)
+        self.connectList.setItem(self.connectList.rowCount() - 1, 1, item2)
         # 用于向self.connectList添加连接信息，包括用户名和远程主机IP
         # self.connectList是一个QTableWidget，我记得每条连接信息貌似需要由两个QTableWidgetItem组成，
         # 一个单元格是一个item，我将connectList设为不可编辑，也就是双击item不能更改条目内容，
