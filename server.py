@@ -11,17 +11,14 @@ class FTPServer(QObject):
     upload = pyqtSignal(str)
     download = pyqtSignal(str)
     disconnect = pyqtSignal(str,str)
-    def __init__(self, host="0.0.0.0", port=21, parent=None,whitelist=[],blacklist=[],timeout=60.0):
+    def __init__(self, host="0.0.0.0", port=21, parent=None,whitelist=[],blacklist=[],username_info = [],timeout=60.0):
         super(FTPServer, self).__init__(parent)
         self.whitelist = whitelist
         self.blacklist = blacklist
         self.timeout = timeout
         self.loop = asyncio.new_event_loop()
         asyncio.set_event_loop(self.loop)
-        self.username_info=[{
-            "user": "user",
-            "pass":"12345"
-        }]
+        self.username_info=username_info
         self.command_list = {
             "USER": "user",
             "CWD": "cwd",
@@ -63,7 +60,8 @@ class FTPServer(QObject):
             while True:
                 data = await asyncio.wait_for(self.reader.readline(),self.timeout)
                 if not data:
-                    raise ConnectionResetError
+                    self.disconnect.emit(self.username, self.addr[0])
+                    continue
                 self.message = data.decode().replace("\r\n","").split(' ')
                 print("Received {} from {}".format(self.message, self.addr))
                 if not data:
@@ -102,6 +100,7 @@ class FTPServer(QObject):
             self.disconnect.emit(self.username,self.addr[0])
         else:
             self.writer.close()
+            self.disconnect.emit(self.username,self.addr[0])
 
     async def dtp_handler(self, reader, writer):
         self.respond("150" ,"File status okay. About to open data connection.")
@@ -173,7 +172,7 @@ class FTPServer(QObject):
         if user == "anonymous":
             return True
         for i in self.username_info:
-            if user == i['user']:
+            if user == i['Name']:
                 return True
         return False
             
@@ -181,7 +180,7 @@ class FTPServer(QObject):
         if self.username == None:
             self.respond("332", "Need account for login.")
         for i in self.username_info:
-            if self.username == i['user'] and self.message[1] == i['pass']:
+            if self.username == i['Name'] and self.message[1] == i['Password']:
                 self.respond("230", "Login successful")
                 break
         else:

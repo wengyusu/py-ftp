@@ -195,15 +195,17 @@ class ServerMainWindow(QMainWindow):
             with open("setting.json", 'r') as f:
                 config = json.load(f)
                 port = config['Port']
+                username_info = config['Users']
                 whitelist = config['IPAllowed']
                 blacklist = config['IPBanned']
 
-            self.server = server.FTPServer(port=port,whitelist=whitelist,blacklist=blacklist,timeout=60.0)
+            self.server = server.FTPServer(port=port,whitelist=whitelist,blacklist=blacklist,username_info = username_info,timeout=60.0)
             self.server.moveToThread(self.thread)
             self.server.begin.connect(self.server.start)
             self.server.onconnect.connect(self.addConnectionItem)
             self.server.upload.connect(self.updateUploadFlow)
             self.server.download.connect(self.updateDownloadFlow)
+            self.server.disconnect.connect(self.removeConnectionItem)
             self.server.begin.emit()
             self.msgWidget.append("Start successfully.")
 
@@ -253,7 +255,6 @@ class ServerMainWindow(QMainWindow):
         # 你可以不用这个函数，根据你的需要实现一个或多个
         # self.msgWidget.append(需要添加的文本)
 
-        pass
 
     def addConnectionItem(self,name,addr):
         item1 = QTableWidgetItem(name)
@@ -267,7 +268,12 @@ class ServerMainWindow(QMainWindow):
         # 初始化时connectList的行数为0，在添加一条信息前，需要将它的行数加1
         # self.connectList.setRowCount(self.connectList.rowCount() + 1)
 
-        pass
+
+    def removeConnectionItem(self, username, ip):
+        for index in range(self.connectList.rowCount()):
+            if self.connectList.item(index, 0).text() == username:
+                if self.connectList.item(index, 1).text() == ip:
+                    self.connectList.removeRow(index)
 
     def updateUploadFlow(self, size):
         self.uploadflow = self.uploadflow + int(size)
