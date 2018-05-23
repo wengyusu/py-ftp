@@ -1,22 +1,33 @@
 from PyQt5.QtWidgets import QPushButton, QApplication, QMainWindow, QAction, qApp, QLabel, QLineEdit, QHBoxLayout, \
     QVBoxLayout, QWidget, QTreeView, QTreeWidget, QSplitter, QTextEdit, QTreeWidgetItem, QDialog, QListWidget, \
     QListWidgetItem, QMessageBox, QCheckBox, QMenu
-from PyQt5.QtGui import QIntValidator,QCursor
+from PyQt5.QtGui import QIntValidator, QCursor
+from PyQt5.QtCore import QTimer
 from ChangedQDirModel import *
 from MyDelegate import *
 from myFtp import myFtp
-import sys, os, time, json, socket, ftplib
+import sys, os, time, json, socket, ftplib, threading
 
 
 class client(QMainWindow):
     def __init__(self):
         super().__init__()
+        # self.localPath = os.environ['HOME']
         self.localPath = '/'
-        self.serverPath= '/'
+        self.serverPath = '/'
         self.linkData = []
-        self.logText='日志\nwelcome\n'
-        self.connectionNow={'hostname':'','username':'','passwd':'','port':21}
-        self.FTP=None
+        self.serverFileInfo = []
+        self.waitingTaskQueue = []
+        self.finishedTaskQueue = []
+        self.createServerDirQueue=[]
+        self.downloadingTask = []
+        self.connectionNow = {'hostname': '', 'username': '', 'passwd': '', 'port': 21}
+        self.FTP = None
+        self.clearFlag = 0
+        self.t1=None
+        self.timer=QTimer(self)
+        self.lock=threading.Lock()
+        self.Mutex=threading.Semaphore(1)
         self.initUI()
 
     def initUI(self):
@@ -87,9 +98,18 @@ class client(QMainWindow):
         serverWidget.setLayout(serverWidgetLayout)
         serverWidget.setContentsMargins(0, 0, 0, 0)
 
-        self.logTextWindow = QTextEdit()
+        self.taskQueueTreeWidget = QTreeWidget()
+        self.taskQueueTreeWidget.setColumnCount(6)
+        self.taskQueueTreeWidget.setHeaderLabels(['文件名', '本地文件夹', '传输方向', ' 远程文件夹', '文件大小', '当前状态'])
+        self.taskQueueTreeWidget.setItemDelegate(MyDelegate())
 
-        self.logTextWindow.setText(self.logText)
+        taskQueueWidget = QWidget()
+        taskQueueLayout = QVBoxLayout()
+        taskQueueLayout.addWidget(QLabel('任务队列:'))
+        taskQueueLayout.addWidget(self.taskQueueTreeWidget)
+        taskQueueLayout.setContentsMargins(0, 0, 0, 0)
+        taskQueueWidget.setLayout(taskQueueLayout)
+        taskQueueWidget.setContentsMargins(0, 0, 0, 0)
 
         splitter1 = QSplitter(Qt.Horizontal)
         splitter2 = QSplitter(Qt.Vertical)
@@ -103,12 +123,14 @@ class client(QMainWindow):
         splitter1.addWidget(splitter2)
         splitter1.addWidget(splitter3)
         splitter4.addWidget(splitter1)
-        splitter4.addWidget(self.logTextWindow)
+        splitter4.addWidget(taskQueueWidget)
 
         self.centerBox.addWidget(splitter4)
 
         centerWidget.setLayout(self.centerBox)
         self.setCentralWidget(centerWidget)
+
+        self.refreshTableButton.clicked.connect(self.tableRefresh)
 
     def initQuickLink(self):
         self.hostInput = QLineEdit(self)
@@ -117,6 +139,7 @@ class client(QMainWindow):
         self.portInput = QLineEdit('21', self)
         self.quickLoginButton = QPushButton('快速连接', self)
         self.anonymousLoginCheckBox = QCheckBox('匿名连接')
+        self.refreshTableButton=QPushButton('刷新文件列表')
 
         self.passwdInput.setEchoMode(QLineEdit.Password)
         self.portInput.setValidator(QIntValidator(0, 65535))
@@ -133,11 +156,13 @@ class client(QMainWindow):
         quickLinkBox.addWidget(self.portInput)
         quickLinkBox.addWidget(self.quickLoginButton)
         quickLinkBox.addWidget(self.anonymousLoginCheckBox)
+        quickLinkBox.addWidget(self.refreshTableButton)
         quickLinkBox.addStretch(1)
         self.centerBox.addLayout(quickLinkBox)
 
         self.quickLoginButton.clicked.connect(self.connectFromQuickLink)
         self.anonymousLoginCheckBox.stateChanged.connect(self.quickLinkCheckBoxChanged)
+
 
     def initLocalFileBox(self):
         self.localFileTreeView = QTreeView()
@@ -145,15 +170,15 @@ class client(QMainWindow):
 
         self.localDirModel = ChangedQDirModel()
         self.localFileTreeView.setModel(self.localDirModel)
-        self.localFileTreeView.setColumnWidth(0,240)
-        self.localFileTreeView.setColumnWidth(2,60)
+        self.localFileTreeView.setColumnWidth(0, 240)
+        self.localFileTreeView.setColumnWidth(2, 60)
 
         self.localFileTreeView.clicked.connect(self.localTreeClicked)
 
         self.localFileTreeWidget.setColumnCount(4)
         self.localFileTreeWidget.setHeaderLabels(['文件名', '文件大小', '文件类型', '修改时间'])
-        self.localFileTreeWidget.setColumnWidth(0,240)
-        self.localFileTreeWidget.setColumnWidth(2,60)
+        self.localFileTreeWidget.setColumnWidth(0, 240)
+        self.localFileTreeWidget.setColumnWidth(2, 60)
         self.localFileTreeWidget.setItemDelegate(MyDelegate())
 
         self.localFileTable = []
@@ -168,14 +193,18 @@ class client(QMainWindow):
         self.serverFileTable = QTreeWidget()
 
         self.serverFileTree.setHeaderLabels(['目录结构'])
+        self.serverFileTree.setItemDelegate(MyDelegate())
 
         self.serverFileTable.setColumnCount(5)
         self.serverFileTable.setHeaderLabels(['文件名', '文件类型', '文件大小', '权限', '修改时间'])
-        self.serverFileTable.setColumnWidth(0,240)
-        self.serverFileTable.setColumnWidth(1,60)
-        self.serverFileTable.setColumnWidth(2,60)
-        self.serverFileTable.setColumnWidth(3,70)
+        self.serverFileTable.setColumnWidth(0, 240)
+        self.serverFileTable.setColumnWidth(1, 60)
+        self.serverFileTable.setColumnWidth(2, 60)
+        self.serverFileTable.setColumnWidth(3, 70)
         self.serverFileTable.setItemDelegate(MyDelegate())
+
+        self.serverFileTree.itemExpanded.connect(self.serverFileTreeRefresh)
+        self.serverFileTree.itemClicked.connect(self.serverFileTreeClicked)
 
         self.serverFileTable.doubleClicked.connect(self.serverTableDoubleClicked)
         self.serverFileTable.itemPressed.connect(self.serverTableRightClicked)
@@ -185,17 +214,17 @@ class client(QMainWindow):
         userName = self.userNameInput.text()
         passwd = self.passwdInput.text()
         port = int(self.portInput.text())
-        with open('linkdata.json','r') as f:
-            self.linkData=json.load(f)
-        data={'hostname':hostName,'username':userName,'passwd':passwd,'port':port,'remark':'来自快速连接'}
-        self.linkData[userName+'@'+hostName+':'+str(port)+' '+'来自快速连接']=data
-        with open('linkdata.json','w') as f:
-            json.dump(self.linkData,f)
+        with open('linkdata.json', 'r') as f:
+            self.linkData = json.load(f)
+        data = {'hostname': hostName, 'username': userName, 'passwd': passwd, 'port': port, 'remark': '来自快速连接'}
+        self.linkData[userName + '@' + hostName + ':' + str(port) + ' ' + '来自快速连接'] = data
+        with open('linkdata.json', 'w') as f:
+            json.dump(self.linkData, f)
 
         try:
             self.aNewConnection(hostName, userName, passwd, port)
         except socket.gaierror:
-            QMessageBox.information(self,'主机名错误','主机名错误，请输入正确的主机名',QMessageBox.Ok,QMessageBox.Ok)
+            QMessageBox.information(self, '主机名错误', '主机名错误，请输入正确的主机名', QMessageBox.Ok, QMessageBox.Ok)
             return
         except ConnectionRefusedError:
             QMessageBox.information(self, '连接出错', '连接失败，请检查是否输入了正确的主机名或端口', QMessageBox.Ok, QMessageBox.Ok)
@@ -208,7 +237,7 @@ class client(QMainWindow):
         self.localFileTable.clear()
         self.localFileTreeWidget.clear()
 
-        if self.localPath!='/':
+        if self.localPath != '/':
             node = QTreeWidgetItem(self.localFileTreeWidget)
             node.setText(0, '..')
             self.localFileTable.append(node)
@@ -242,12 +271,14 @@ class client(QMainWindow):
         for i in self.localFileTable:
             self.localFileTreeWidget.addTopLevelItem(i)
 
-    def serverFileRefresh(self):
+    def serverFileTableRefresh(self):
+        self.Mutex.acquire()
         try:
             fileinfo = self.FTP.getdirinfo(self.serverPath)
         except ftplib.error_temp:
             self.reconnect()
             fileinfo = self.FTP.getdirinfo(self.serverPath)
+        self.Mutex.release()
 
         for i in fileinfo:
             node = QTreeWidgetItem(self.serverFileTable)
@@ -263,61 +294,154 @@ class client(QMainWindow):
         for i in self.serverFileInfo:
             self.serverFileTable.addTopLevelItem(i)
 
-    def serverTableDoubleClicked(self,index):
-        if qApp.mouseButtons()==Qt.RightButton:
+    def serverFileTreeRefresh(self, item):
+        if self.clearFlag == 0:
+            self.clearFlag = 1
             return
 
-        if self.serverFileInfo[index.row()].text(1)=='File':
-            return
+        path = item.text(0)
+        fatherNode = item
+        while fatherNode != self.serverFileTreeRoot:
+            fatherNode = fatherNode.parent()
+            path = fatherNode.text(0) + '/' + path
 
-        if index.row()==0:
-            if self.serverPath=='/':
-                self.localPath=self.serverPath+self.serverFileInfo[0].text(0)
-            else:
-                tempPath=self.serverPath.split('/')[:-1]
-                self.serverPath=''
-                for i in tempPath:
-                    self.serverPath=self.serverPath+'/'+i
-                if self.serverPath!='/':
-                    self.serverPath=self.serverPath[1:]
+        path = path[1:] + '/'
+
+        childrenItemList = item.takeChildren()
+        for i in childrenItemList:
+            item.removeChild(i)
+        self.Mutex.acquire()
+        fileinfo = self.FTP.getdirinfo(path)
+
+        for i in fileinfo:
+            if i[1] == 'Folder':
+                node = QTreeWidgetItem(item)
+                node.setText(0, i[0])
+                tempinfo = self.FTP.getdirinfo(path + i[0])
+                for j in tempinfo:
+                    if j[1] == 'Folder':
+                        tempnode = QTreeWidgetItem(node)
+                        tempnode.setText(0, j[0])
+                        node.addChild(tempnode)
+                item.addChild(node)
+        self.Mutex.release()
+
+    def serverFileTreeClicked(self, item, int_p):
+        path = item.text(0)
+        fatherNode = item
+        while fatherNode != self.serverFileTreeRoot:
+            fatherNode = fatherNode.parent()
+            path = fatherNode.text(0) + '/' + path
+        if path != '/':
+            self.serverPath = path[1:]
         else:
-            self.serverPath=os.path.join(self.serverPath,self.serverFileInfo[index.row()].text(0))
+            self.serverPath = path
 
         self.serverFileTable.clear()
         self.serverFileInfo.clear()
 
-        if self.serverPath!='/':
+        if self.serverPath != '/':
             node = QTreeWidgetItem(self.serverFileTable)
-            node.setText(0,'..')
+            node.setText(0, '..')
             self.serverFileInfo.append(node)
 
-        self.serverFileRefresh()
+        self.serverFileTableRefresh()
 
-    def serverTableRightClicked(self,item,int_p):
-        if item.text(0)=='..':
+    def serverTableDoubleClicked(self, index):
+        if qApp.mouseButtons() == Qt.RightButton:
             return
-        if qApp.mouseButtons()==Qt.RightButton:
-            localMenu=QMenu()
-            downLoadFile=QAction('download')
-            localMenu.addAction(downLoadFile)
 
+        if self.serverFileInfo[index.row()].text(1) == 'File':
+            return
+
+        if index.row() == 0:
+            if self.serverPath == '/':
+                self.localPath = self.serverPath + self.serverFileInfo[0].text(0)
+            else:
+                tempPath = self.serverPath.split('/')[:-1]
+                self.serverPath = ''
+                for i in tempPath:
+                    self.serverPath = self.serverPath + '/' + i
+                if self.serverPath != '/':
+                    self.serverPath = self.serverPath[1:]
+        else:
+            self.serverPath = os.path.join(self.serverPath, self.serverFileInfo[index.row()].text(0))
+
+        self.serverFileTable.clear()
+        self.serverFileInfo.clear()
+
+        if self.serverPath != '/':
+            node = QTreeWidgetItem(self.serverFileTable)
+            node.setText(0, '..')
+            self.serverFileInfo.append(node)
+
+        self.serverFileTableRefresh()
+
+    def serverTableRightClicked(self, item, int_p):
+        if item.text(0) == '..':
+            return
+        if qApp.mouseButtons() == Qt.RightButton:
+            serverMenu = QMenu()
+            downLoadFile = QAction('download')
+            downLoadFolder=QAction('downloadfolder')
             downLoadFile.triggered.connect(self.downloadFile)
-            localMenu.exec_(QCursor.pos())
+            downLoadFolder.triggered.connect(self.downloadFolder)
+            if item.text(1)=='Folder':
+                serverMenu.addAction(downLoadFolder)
+            else:
+                serverMenu.addAction(downLoadFile)
+
+            serverMenu.exec_(QCursor.pos())
 
     def downloadFile(self):
-        filename=self.serverFileTable.selectedItems()[0].text(0)
-        if ' ' in filename:
-            localName=filename.replace(' ','_')
+        filename = self.serverFileTable.selectedItems()[0].text(0)
+        self.lock.acquire()
+        try:
+            self.waitingTaskQueue.append(
+                {'filename': filename, 'localpath': self.localPath, 'direction': '<--', 'serverpath': self.serverPath,
+                 'filesize': self.serverFileTable.selectedItems()[0].text(2)})
+
+        finally:
+            self.lock.release()
+        self.taskQueueRefresh()
+        if len(self.downloadingTask) == 0:
+            if self.t1==None:
+                self.t1=threading.Thread(target=self.taskQueueOpertion)
+                self.t1.start()
+            else:
+                if self.t1.is_alive():
+                    pass
+                else:
+                    self.t1 = threading.Thread(target=self.taskQueueOpertion)
+                    self.t1.start()
+
+    def downloadFolder(self):
+        folderpath = os.path.join(self.serverPath,self.serverFileTable.selectedItems()[0].text(0))
+        if self.localPath=='/':
+            os.mkdir('/'+self.serverFileTable.selectedItems()[0].text(0))
         else:
-            localName=filename
-        pid = os.fork()
-        if pid == 0:
-            with open(self.localPath +'/' + localName, 'wb') as fp:
-                self.FTP.retrbinary('RETR ' + self.serverPath + '/' + filename, fp.write, 1024)
-                self.FTP.set_debuglevel(0)
-                os._exit(0)
-        else:
-            pass
+            os.mkdir(self.localPath+'/' + self.serverFileTable.selectedItems()[0].text(0))
+        self.Mutex.acquire()
+        self.lock.acquire()
+        try:
+            self.traversalServerDir(folderpath,self.localPath,self.serverPath)
+        except ftplib.error_temp:
+            self.reconnect()
+            self.traversalServerDir(folderpath, self.localPath, self.serverPath)
+        finally:
+            self.lock.release()
+        self.Mutex.release()
+        self.taskQueueRefresh()
+        if len(self.downloadingTask) == 0:
+            if self.t1==None:
+                self.t1=threading.Thread(target=self.taskQueueOpertion)
+                self.t1.start()
+            else:
+                if self.t1.is_alive():
+                    pass
+                else:
+                    self.t1 = threading.Thread(target=self.taskQueueOpertion)
+                    self.t1.start()
 
     def localTreeClicked(self, index):
         if self.localDirModel.fileInfo(index).isDir():
@@ -334,52 +458,144 @@ class client(QMainWindow):
         self.localFileRefesh()
 
     def localTableDoubleClicked(self, index):
-        if qApp.mouseButtons()==Qt.RightButton:
+        if qApp.mouseButtons() == Qt.RightButton:
             return
 
         if os.path.isdir(os.path.join(self.localPath, self.localFileTable[index.row()].text(0))) == False:
             return
 
         if index.row() == 0:
-            if self.localPath=='/':
+            if self.localPath == '/':
                 self.localPath = self.localPath + self.localFileTable[0].text(0)
             else:
                 tempPath = self.localPath.split('/')[:-1]
                 self.localPath = ''
                 for i in tempPath:
                     self.localPath = self.localPath + '/' + i
-                if self.localPath!='/':
-                    self.localPath=self.localPath[1:]
+                if self.localPath != '/':
+                    self.localPath = self.localPath[1:]
         else:
             self.localPath = os.path.join(self.localPath, self.localFileTable[index.row()].text(0))
 
         self.localFileRefesh()
 
-    def localTableRightClicked(self,item,int_p):
-        if item.text(0)=='..':
+    def localTableRightClicked(self, item, int_p):
+        if item.text(0) == '..':
             return
-        if qApp.mouseButtons()==Qt.RightButton:
-            localMenu=QMenu()
-            upLoadFile=QAction('upload')
-            localMenu.addAction(upLoadFile)
-
+        if qApp.mouseButtons() == Qt.RightButton:
+            localMenu = QMenu()
+            upLoadFile = QAction('upload')
+            upLoadFolder=QAction('uploadfolder')
             upLoadFile.triggered.connect(self.uploadFile)
+            upLoadFolder.triggered.connect(self.uploadFolder)
+            if item.text(2)=='Folder':
+                localMenu.addAction(upLoadFolder)
+            else:
+                localMenu.addAction(upLoadFile)
+
             localMenu.exec_(QCursor.pos())
 
     def uploadFile(self):
         filename = self.localFileTreeWidget.selectedItems()[0].text(0)
-        pid = os.fork()
-        if pid == 0:
-            with open(self.localPath + '/' + filename, 'rb') as fp:
-                self.FTP.storbinary('STOR ' + self.serverPath + '/' + filename, fp, 1024)
-                self.FTP.set_debuglevel(0)
-                os._exit(0)
-        else:
-            pass
+        self.lock.acquire()
+        try:
+            self.waitingTaskQueue.append(
+                {'filename': filename, 'localpath': self.localPath, 'direction': '-->', 'serverpath': self.serverPath,
+                 'filesize': self.localFileTreeWidget.selectedItems()[0].text(1)})
+
+        finally:
+            self.lock.release()
+        self.taskQueueRefresh()
+        if len(self.downloadingTask) == 0:
+            if self.t1==None:
+                self.t1=threading.Thread(target=self.taskQueueOpertion)
+                self.t1.start()
+            else:
+                if self.t1.is_alive():
+                    pass
+                else:
+                    self.t1 = threading.Thread(target=self.taskQueueOpertion)
+                    self.t1.start()
+
+    def uploadFolder(self):
+        folderpath = os.path.join(self.localPath,self.localFileTreeWidget.selectedItems()[0].text(0))
+        self.lock.acquire()
+        try:
+            self.traversalLocalDir(folderpath,self.localPath,self.serverPath)
+        except ftplib.error_temp:
+            self.reconnect()
+            self.traversalLocalDir(folderpath, self.localPath, self.serverPath)
+        finally:
+            self.lock.release()
+        self.taskQueueRefresh()
+
+        if len(self.downloadingTask) == 0:
+            if self.t1==None:
+                self.t1=threading.Thread(target=self.taskQueueOpertion)
+                self.t1.start()
+            else:
+                if self.t1.is_alive():
+                    pass
+                else:
+                    self.t1 = threading.Thread(target=self.taskQueueOpertion)
+                    self.t1.start()
+
+    def taskQueueOpertion(self):
+
+        while len(self.createServerDirQueue)!=0:
+            self.FTP.mkd(self.createServerDirQueue[0])
+            self.createServerDirQueue.pop(0)
+
+        while len(self.waitingTaskQueue) != 0:
+            self.lock.acquire()
+            try:
+                self.downloadingTask.append(self.waitingTaskQueue[0])
+                print('taskadded'+str(self.waitingTaskQueue[0]))
+                self.waitingTaskQueue.pop(0)
+                print('self.waitingTaskQueue.pop(0)')
+            finally:
+                self.lock.release()
+            print('before self.taskQueueRefresh()')
+            self.Mutex.acquire()
+            if self.downloadingTask[0]['direction'] == '<--':
+                if ' ' in self.downloadingTask[0]['filename']:
+                    localName = self.downloadingTask[0]['filename'].replace(' ', '_')
+                else:
+                    localName = self.downloadingTask[0]['filename']
+                with open(self.downloadingTask[0]['localpath'] + '/' + localName, 'wb') as fp:
+                    try:
+                        self.FTP.retrbinary('RETR ' + self.downloadingTask[0]['serverpath'] + '/' + self.downloadingTask[0]['filename'],
+                                                fp.write, 102400)
+                    except ftplib.error_temp:
+                        self.reconnect()
+                        self.FTP.retrbinary('RETR ' + self.downloadingTask[0]['serverpath'] + '/' + self.downloadingTask[0]['filename'],
+                                                fp.write, 102400)
+                    self.FTP.set_debuglevel(0)
+            elif self.downloadingTask[0]['direction'] == '-->':
+                with open(self.downloadingTask[0]['localpath'] + '/' + self.downloadingTask[0]['filename'], 'rb') as fp:
+                    try:
+                        self.FTP.storbinary('STOR ' + self.downloadingTask[0]['serverpath'] + '/' + self.downloadingTask[0]['filename'], fp,
+                                                102400)
+                    except ftplib.error_temp:
+                        self.reconnect()
+                        self.FTP.retrbinary('RETR ' + self.downloadingTask[0]['serverpath'] + '/' + self.downloadingTask[0]['filename'],
+                                                fp.write, 102400)
+                    self.FTP.set_debuglevel(0)
+            self.Mutex.release()
+            self.lock.acquire()
+            try:
+                self.finishedTaskQueue.insert(0,self.downloadingTask[0])
+                print('finish'+str(self.downloadingTask[0]))
+                self.downloadingTask.clear()
+                print('downloadingTask.clear()')
+            finally:
+                self.lock.release()
+
+            print('after self.taskQueueRefresh()')
 
     def startLinkManageDialog(self):
-        with open('linkdata.json','r') as f:
-            self.linkData=json.load(f)
+        with open('linkdata.json', 'r') as f:
+            self.linkData = json.load(f)
         self.linkManageDialog = QDialog()
         self.linkManageDialog.setModal(True)
         linkManageLayout = QVBoxLayout()
@@ -392,7 +608,6 @@ class client(QMainWindow):
         connectButtom = QPushButton('连接')
         confirmButtom = QPushButton('确定')
         cancleButtom = QPushButton('取消')
-
 
         bottomButtomGroupLayout.addStretch(1)
         bottomButtomGroupLayout.addWidget(connectButtom)
@@ -424,17 +639,17 @@ class client(QMainWindow):
         hBox3 = QHBoxLayout()
         hBox4 = QHBoxLayout()
         hBox5 = QHBoxLayout()
-        hBox6=QHBoxLayout()
+        hBox6 = QHBoxLayout()
 
         self.host = QLineEdit()
         self.userName = QLineEdit()
         self.passwd = QLineEdit()
         self.port = QLineEdit()
-        self.remark=QLineEdit()
+        self.remark = QLineEdit()
         self.passwd.setEchoMode(QLineEdit.Password)
-        self.port.setValidator(QIntValidator(0,65535))
+        self.port.setValidator(QIntValidator(0, 65535))
         self.anonymousLogin = QCheckBox('匿名登录')
-        confirmEdit=QPushButton('确定修改')
+        confirmEdit = QPushButton('确定修改')
         confirmEdit.setFixedWidth(80)
 
         self.anonymousLogin.stateChanged.connect(self.linkManageCheckBoxChanged)
@@ -450,7 +665,7 @@ class client(QMainWindow):
         hBox6.addWidget(QLabel('备注：   '))
         hBox6.addWidget(self.remark)
         hBox5.addWidget(self.anonymousLogin)
-        hBox5.addWidget(confirmEdit,Qt.AlignRight)
+        hBox5.addWidget(confirmEdit, Qt.AlignRight)
 
         linkEditLayout.addLayout(hBox1)
         linkEditLayout.addLayout(hBox2)
@@ -464,13 +679,13 @@ class client(QMainWindow):
             item.setText(key)
 
         self.linkList.setCurrentRow(0)
-        if len(self.linkData)!=0:
-            tempdata=self.linkData[self.linkList.currentItem().text()]
+        if len(self.linkData) != 0:
+            tempdata = self.linkData[self.linkList.currentItem().text()]
 
             self.host.setText(tempdata['hostname'])
             self.port.setText(str(tempdata['port']))
             self.remark.setText(tempdata['remark'])
-            if tempdata['username']=='anonymous':
+            if tempdata['username'] == 'anonymous':
                 self.anonymousLogin.setCheckState(Qt.Checked)
             else:
                 self.userName.setText(tempdata['username'])
@@ -495,7 +710,7 @@ class client(QMainWindow):
         try:
             self.aNewConnection(hostName, userName, passwd, port)
         except socket.gaierror:
-            QMessageBox.information(self,'主机名错误','主机名错误，请输入正确的主机名',QMessageBox.Ok,QMessageBox.Ok)
+            QMessageBox.information(self, '主机名错误', '主机名错误，请输入正确的主机名', QMessageBox.Ok, QMessageBox.Ok)
             return
         except ConnectionRefusedError:
             QMessageBox.information(self, '连接出错', '连接失败，请检查是否输入了正确的主机名或端口', QMessageBox.Ok, QMessageBox.Ok)
@@ -506,11 +721,11 @@ class client(QMainWindow):
         self.saveData()
 
     def removeLink(self):
-        if len(self.linkData)==0:
+        if len(self.linkData) == 0:
             return
 
-        rowNow=self.linkList.currentRow()
-        itemNow=self.linkList.currentItem()
+        rowNow = self.linkList.currentRow()
+        itemNow = self.linkList.currentItem()
 
         self.linkData.pop(itemNow.text())
         self.linkList.removeItemWidget(itemNow)
@@ -521,7 +736,7 @@ class client(QMainWindow):
             item = QListWidgetItem(self.linkList)
             item.setText(key)
 
-        if len(self.linkData)==0:
+        if len(self.linkData) == 0:
             self.host.setText('')
             self.port.setText('')
             self.anonymousLogin.setCheckState(Qt.Unchecked)
@@ -529,9 +744,9 @@ class client(QMainWindow):
             self.passwd.setText('')
             self.remark.setText('')
             return
-        elif len(self.linkData)<rowNow+1:
-            rowNow=len(self.linkData)-1
-            self.linkList.setCurrentRow(len(self.linkData)-1)
+        elif len(self.linkData) < rowNow + 1:
+            rowNow = len(self.linkData) - 1
+            self.linkList.setCurrentRow(len(self.linkData) - 1)
         else:
             self.linkList.setCurrentRow(rowNow)
 
@@ -539,8 +754,8 @@ class client(QMainWindow):
 
     def saveData(self):
         self.confirmEditLink()
-        with open('linkdata.json','w') as f:
-            json.dump(self.linkData,f)
+        with open('linkdata.json', 'w') as f:
+            json.dump(self.linkData, f)
         self.linkManageDialog.close()
 
     def confirmEditLink(self):
@@ -548,12 +763,12 @@ class client(QMainWindow):
         userName = self.userName.text()
         passwd = self.passwd.text()
         port = int(self.port.text())
-        remark=self.remark.text()
+        remark = self.remark.text()
 
-        data = {'hostname': hostName, 'username': userName, 'passwd': passwd, 'port': port, "remark":remark}
+        data = {'hostname': hostName, 'username': userName, 'passwd': passwd, 'port': port, "remark": remark}
 
         self.linkData.pop(self.linkList.currentItem().text())
-        self.linkData[userName + '@' + hostName + ':' + str(port) +' '+remark] = data
+        self.linkData[userName + '@' + hostName + ':' + str(port) + ' ' + remark] = data
 
         self.linkList.clear()
 
@@ -561,12 +776,12 @@ class client(QMainWindow):
             item = QListWidgetItem(self.linkList)
             item.setText(key)
 
-        self.linkList.setCurrentRow(len(self.linkList)-1)
+        self.linkList.setCurrentRow(len(self.linkList) - 1)
 
     def addNewLink(self):
         if '新连接' in self.linkData:
             return
-        self.linkData['新连接']={'hostname':'','username':'','passwd':'','port':'','remark':''}
+        self.linkData['新连接'] = {'hostname': '', 'username': '', 'passwd': '', 'port': '', 'remark': ''}
         item = QListWidgetItem(self.linkList)
         item.setText('新连接')
         self.linkList.setCurrentRow(len(self.linkList) - 1)
@@ -578,7 +793,7 @@ class client(QMainWindow):
         self.passwd.setText('')
         self.remark.setText('')
 
-    def listItemClicked(self,item):
+    def listItemClicked(self, item):
         tempdata = self.linkData[item.text()]
 
         self.host.setText(tempdata['hostname'])
@@ -615,40 +830,203 @@ class client(QMainWindow):
             self.userName.setEnabled(True)
             self.passwd.setEnabled(True)
 
-    def log(self,message):
-        self.logText=self.logText+message
-        self.logTextWindow.setText(self.logText)
-
-    def aNewConnection(self,host,username,passwd,port):
-        if self.FTP!=None:
+    def aNewConnection(self, host, username, passwd, port):
+        if self.FTP != None:
             try:
                 self.FTP.quit()
             except AttributeError:
                 pass
-        self.FTP=myFtp()
+            except EOFError:
+                pass
+        self.FTP = myFtp()
         self.FTP.set_pasv(True)
-        self.connectionNow['hostname']=host
-        self.connectionNow['username']=username
-        self.connectionNow['passwd']=passwd
-        self.connectionNow['port']=port
-        self.FTP.connect(host,port)
-        self.FTP.login(username,passwd)
+        self.connectionNow['hostname'] = host
+        self.connectionNow['username'] = username
+        self.connectionNow['passwd'] = passwd
+        self.connectionNow['port'] = port
+        self.FTP.connect(host, port)
+        self.FTP.login(username, passwd)
 
         self.serverFileInfo = []
-        self.serverPath='/'
+        self.serverPath = '/'
         self.serverFileTable.clear()
+        self.serverFileTree.clear()
 
-        self.serverFileRefresh()
+        self.serverFileTreeRoot = QTreeWidgetItem(self.serverFileTree)
+        self.serverFileTreeRoot.setText(0, '/')
+        self.serverFileTree.addTopLevelItem(self.serverFileTreeRoot)
+
+        self.Mutex.acquire()
+        fileinfo = self.FTP.getdirinfo(self.serverPath)
+
+        for i in fileinfo:
+            if i[1] == 'Folder':
+                node = QTreeWidgetItem(self.serverFileTreeRoot)
+                node.setText(0, i[0])
+                tempinfo = self.FTP.getdirinfo(self.serverPath + i[0])
+                for j in tempinfo:
+                    if j[1] == 'Folder':
+                        tempnode = QTreeWidgetItem(node)
+                        tempnode.setText(0, j[0])
+                        node.addChild(tempnode)
+                self.serverFileTreeRoot.addChild(node)
+        self.Mutex.release()
+
+        self.serverFileTreeRoot.setExpanded(True)
+
+        self.serverFileTableRefresh()
+
+        if self.timer.isActive():
+            self.timer.disconnect()
+
+        self.timer.timeout.connect(self.taskQueueRefresh)
+        self.timer.start(500)
 
     def reconnect(self):
         self.FTP.connect(self.connectionNow['hostname'], self.connectionNow['port'])
         self.FTP.login(self.connectionNow['username'], self.connectionNow['passwd'])
 
+    def taskQueueRefresh(self):
+        self.lock.acquire()
+        try:
+            self.taskQueueTreeWidget.clear()
+            if len(self.downloadingTask)!=0:
+                node =QTreeWidgetItem(self.taskQueueTreeWidget)
+                node.setText(0,self.downloadingTask[0]['filename'])
+                node.setText(1,self.downloadingTask[0]['localpath'])
+                node.setText(2, self.downloadingTask[0]['direction'])
+                node.setText(3, self.downloadingTask[0]['serverpath'])
+                node.setText(4, self.downloadingTask[0]['filesize'])
+                node.setText(5,'正在传输')
+                self.taskQueueTreeWidget.addTopLevelItem(node)
+
+            for i in self.waitingTaskQueue:
+                node = QTreeWidgetItem(self.taskQueueTreeWidget)
+                node.setText(0, i['filename'])
+                node.setText(1, i['localpath'])
+                node.setText(2, i['direction'])
+                node.setText(3, i['serverpath'])
+                node.setText(4, i['filesize'])
+                node.setText(5, '等待传输')
+                self.taskQueueTreeWidget.addTopLevelItem(node)
+
+            for i in self.finishedTaskQueue:
+                node = QTreeWidgetItem(self.taskQueueTreeWidget)
+                node.setText(0, i['filename'])
+                node.setText(1, i['localpath'])
+                node.setText(2, i['direction'])
+                node.setText(3, i['serverpath'])
+                node.setText(4, i['filesize'])
+                node.setText(5, '传输完成')
+                self.taskQueueTreeWidget.addTopLevelItem(node)
+
+        finally:
+            self.lock.release()
+
+    def tableRefresh(self):
+        if self.connectionNow['hostname']!='':
+            self.serverFileTable.clear()
+            self.serverFileInfo.clear()
+
+            if self.serverPath != '/':
+                node = QTreeWidgetItem(self.serverFileTable)
+                node.setText(0, '..')
+                self.serverFileInfo.append(node)
+
+            self.serverFileTableRefresh()
+
+        self.localFileRefesh()
+
+    def traversalLocalDir(self,dir,localpath,serverpath):
+        fs=os.listdir(dir)
+        for i in fs:
+            temppath=os.path.join(dir,i)
+            if os.path.isdir(temppath)==False:
+                if serverpath=='/' and localpath=='/':
+                    print(i+' '+dir+' '+dir+' '+str(os.path.getsize(temppath)))
+                    self.waitingTaskQueue.append({'filename': i, 'localpath': dir, 'direction': '-->', 'serverpath': dir,
+                     'filesize': str(os.path.getsize(temppath))})
+                elif serverpath=='/':
+                    self.waitingTaskQueue.append(
+                        {'filename': i, 'localpath': dir, 'direction': '-->', 'serverpath': dir[len(localpath):],
+                         'filesize': str(os.path.getsize(temppath))})
+                    print(
+                        i + ' ' +dir+' '+dir[len(localpath):] + ' ' + str(os.path.getsize(temppath)))
+                elif localpath=='/':
+                    self.waitingTaskQueue.append(
+                        {'filename': i, 'localpath': dir, 'direction': '-->', 'serverpath': serverpath + dir,
+                         'filesize': str(os.path.getsize(temppath))})
+                    print(
+                        i + ' ' + dir + ' ' + serverpath + dir + ' ' + str(
+                            os.path.getsize(temppath)))
+                else:
+                    self.waitingTaskQueue.append(
+                        {'filename': i, 'localpath': dir, 'direction': '-->', 'serverpath': serverpath + dir[len(localpath):],
+                         'filesize': str(os.path.getsize(temppath))})
+                    print(
+                        i + ' ' + dir + ' ' + serverpath + dir[len(localpath):] + ' ' + str(
+                            os.path.getsize(temppath)))
+            else:
+                if serverpath=='/' and localpath=='/':
+                    print(i+' '+temppath+' '+temppath)
+                    self.createServerDirQueue.append(temppath)
+                elif serverpath=='/':
+                    print(i + ' ' +temppath+' '+temppath[len(localpath):])
+                    self.createServerDirQueue.append(temppath[len(localpath):])
+                elif localpath=='/':
+                    print(i + ' ' + temppath + ' ' + serverpath + temppath)
+                    self.createServerDirQueue.append(serverpath + temppath)
+                else:
+                    print(i + ' ' + temppath + ' ' + serverpath + temppath[len(localpath):])
+                    self.createServerDirQueue.append(serverpath + temppath[len(localpath):])
+                self.traversalLocalDir(temppath,localpath,serverpath)
+
+    def traversalServerDir(self,dir,localpath,serverpath):
+        fs = self.FTP.getdirinfo(dir)
+        for i in fs:
+            temppath = os.path.join(dir, i[0])
+            if i[1] == 'File':
+                if serverpath == '/' and localpath == '/':
+                    print(i[0] + ' ' + dir + ' ' + dir + ' ' + i[2])
+                    self.waitingTaskQueue.append(
+                        {'filename': i[0], 'localpath': dir, 'direction': '<--', 'serverpath': dir,
+                         'filesize': i[2]})
+                elif serverpath == '/':
+                    self.waitingTaskQueue.append(
+                        {'filename': i[0], 'localpath': localpath + dir, 'direction': '<--', 'serverpath': dir,
+                         'filesize': i[2]})
+                    print(
+                        i[0] + ' ' + localpath + dir + ' ' + dir + ' ' + i[2])
+                elif localpath == '/':
+                    self.waitingTaskQueue.append(
+                        {'filename': i[0], 'localpath': dir[len(serverpath):], 'direction': '<--', 'serverpath': dir,
+                         'filesize': i[2]})
+                    print(
+                        i[0] + ' ' + dir[len(serverpath):] + ' ' + dir + ' ' + i[2])
+                else:
+                    self.waitingTaskQueue.append(
+                        {'filename': i[0], 'localpath': localpath + dir[len(serverpath):], 'direction': '<--',
+                         'serverpath': dir, 'filesize': i[2]})
+                    print(i[0] + ' ' +localpath + dir[len(serverpath):] + ' ' + dir+ ' ' + i[2])
+            else:
+                if serverpath == '/' and localpath == '/':
+                    print(i[0] + ' ' + temppath + ' ' + temppath)
+                    os.makedirs(temppath)
+                elif serverpath == '/':
+                    print(i[0] + ' ' + localpath +temppath + ' ' + temppath)
+                    os.makedirs(localpath +temppath)
+                elif localpath == '/':
+                    print(i[0] + ' ' + temppath[len(serverpath):] + ' ' + temppath)
+                    os.makedirs(temppath[len(serverpath):])
+                else:
+                    print(i[0] + ' ' + localpath +temppath[len(serverpath):] + ' ' + temppath)
+                    os.makedirs(localpath +temppath[len(serverpath):])
+                self.traversalServerDir(temppath, localpath, serverpath)
+
 
 def TimeStampToTime(timestamp):
     timeStruct = time.localtime(timestamp)
     return time.strftime('%Y-%m-%d %H:%M:%S', timeStruct)
-
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)

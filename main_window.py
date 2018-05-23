@@ -198,8 +198,9 @@ class ServerMainWindow(QMainWindow):
                 username_info = config['Users']
                 whitelist = config['IPAllowed']
                 blacklist = config['IPBanned']
+                maxcon = config['MaxConnectionCount']
 
-            self.server = server.FTPServer(port=port,whitelist=whitelist,blacklist=blacklist,username_info = username_info,timeout=60.0)
+            self.server = server.FTPServer(port=port,whitelist=whitelist,blacklist=blacklist,username_info = username_info,timeout=60.0,maxcon=maxcon)
             self.server.moveToThread(self.thread)
             self.server.begin.connect(self.server.start)
             self.server.onconnect.connect(self.addConnectionItem)
