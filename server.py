@@ -19,8 +19,9 @@ class FTPServer(QObject):
         self.blacklist = blacklist
         self.timeout = timeout
         self.loop = asyncio.new_event_loop()
+        self.cond = asyncio.Condition(loop=self.loop)
         asyncio.set_event_loop(self.loop)
-        self.username_info=username_info
+        self.username_info = username_info
         self.command_list = {
             "USER": "user",
             "CWD": "cwd",
@@ -44,6 +45,7 @@ class FTPServer(QObject):
         self.port = port
         self.username = None
         self.message = None
+        self.rootpath = './'
         self.path = '/'
         self.dtp_loop = asyncio.new_event_loop()
         self.ports = [port for port in range(10000, 10100)]
@@ -69,7 +71,10 @@ class FTPServer(QObject):
                         self.writer.close()
                         self.disconnect.emit(self.username, self.addr[0])
                         break
-                data = await asyncio.wait_for(self.reader.readline(),self.timeout)
+                try:
+                    data = await asyncio.wait_for(self.reader.readline(), self.timeout)
+                except Exception as e:
+                    pass
                 if not data:
                     self.disconnect.emit(self.username, self.addr[0])
                     break
@@ -93,16 +98,19 @@ class FTPServer(QObject):
                     if self.message[0] == "PASV":
                         await self.pasv()
                     if self.message[0] == "LIST":
-                        await self.list()                    
+                        with await self.cond:
+                            self.cond.notify_all()                    
 
                     if self.message[0] == "CWD":
                         self.cwd()
 
                     if self.message[0] == "RETR":
-                        await self.retr()
+                        with await self.cond:
+                            self.cond.notify_all() 
 
                     if self.message[0] == "STOR":
-                        await self.stor()
+                        with await self.cond:
+                            self.cond.notify_all() 
                     if self.message[0] == "MKD":
                         self.mkd()
                     if self.message[0] == "QUIT":
@@ -119,19 +127,48 @@ class FTPServer(QObject):
         print(self.con)
         self.con = self.con - 1
 
+    def check(self):
+        if self.message[0] in ["LIST","RETR","STOR"]:
+            return True
+        else:
+            return False
+
     async def dtp_handler(self, reader, writer):
-        self.respond("150" ,"File status okay. About to open data connection.")
+        self.respond("150", "File status okay. About to open data connection.")
+        print("waiting....")
+        with await self.cond:
+            await self.cond.wait_for(self.check)
+        print("waited")
+        if self.message[0] == "LIST":
+            await self.list_handler(reader, writer)
+        elif self.message[0] == "STOR":
+            if self.message[1].startswith('/'):
+                self.stor_file = self.rootpath + self.message[1]
+            await self.stor_handler(reader, writer)
+            self.data_ports.put_nowait(self.available_port)
+            self.available_port = None
+        elif self.message[0] == "RETR":
+            if self.message[1].startswith('/'):
+                self.retr_file = self.rootpath + self.message[1]
+            await self.retr_handler(reader, writer)
+            self.data_ports.put_nowait(self.available_port)
+            self.available_port = None
+        else:
+            print("error")
+
+    async def list_handler(self, reader, writer):
+        # self.respond("150" ,"File status okay. About to open data connection.")
         data=""
         # if self.path == '/':
         #     self.path = os.getcwd()
-        path = os.listdir('./' + self.path)
+        path = os.listdir(self.path)
         print(self.path)
         for p in path:
-            if os.path.isdir(p):
-                data = data + "drwxr-xr-x 1 owner group           1 Aug 26 16:31 " +  p + " \r\n"
+            if os.path.isdir(os.path.join(self.path, p)):
+                data = data + "drwxr-xr-x 1 owner group           1 Aug 26 16:31 " +  p + "\r\n"
             else:
-                size=os.path.getsize(os.path.join('./'+self.path, p))
-                data = data + "-rw-r--r-- 1 owner group           {} Aug 26 16:31 ".format(size) + p + " \r\n"
+                size=os.path.getsize(os.path.join(self.path, p))
+                data = data + "-rw-r--r-- 1 owner group           {} Aug 26 16:31 ".format(size) + p + "\r\n"
         print(data)
         writer.write(data.encode())
         await self.writer.drain()
@@ -140,28 +177,34 @@ class FTPServer(QObject):
         print(data)
         self.writer.write(data.encode())
         self.passive_server.close()
+        self.data_ports.put_nowait(self.available_port)
+        self.available_port = None
 
     async def retr_handler(self, reader, writer):
-        self.respond("150" ,"File status okay. About to open data connection.")
+        # self.respond("150" ,"File status okay. About to open data connection.")
         file = self.retr_file
         size = os.path.getsize(file)
         print(size)
         self.download.emit(str(size))
-        with open(file, 'r') as f:
+        with open(file, 'rb') as f:
             data = f.readlines()
-        data = '\r\n'.join(data)
+        data = b'\r\n'.join(data)
         print(data)
-        writer.write(data.encode())
+        writer.write(data)
         await writer.drain()
         writer.close()
         self.passive_server.close()
         self.respond("226","Transfer complete.")
 
     async def stor_handler(self, reader, writer):
-        self.respond("150" ,"File status okay. About to open data connection.")
-        file = self.stor_file
+        # self.respond("150" ,"File status okay. About to open data connection.")
+        if self.stor_file.startswith('/'):
+            file = os.getcwd() + self.stor_file
+        else:
+            file = self.stor_file
         data = await reader.read()
         size = len(data)
+        print("size:{}".format(size))
         self.upload.emit(str(size))
         print(data)
         with open(file, 'wb') as f:
@@ -200,6 +243,13 @@ class FTPServer(QObject):
             self.respond("332", "Need account for login.")
         for i in self.username_info:
             if self.username == i['Name'] and self.message[1] == i['Password']:
+                if os.path.exists(i['SharedFolder']):
+                    self.rootpath = i['SharedFolder']
+                    self.path = i['SharedFolder']
+                else:
+                    os.makedirs(i['SharedFolder'])
+                    self.rootpath = os.path.abspath(i['SharedFolder'])
+                    self.path = self.rootpath                   
                 self.respond("230", "Login successful")
                 break
         else:
@@ -207,6 +257,8 @@ class FTPServer(QObject):
     async def list(self):
         if len(self.message) > 1:
             self.path = self.message[1]
+        if self.available_port is not None:
+            self.passive_server = await asyncio.start_server(self.list_handler, host=self.host[0], port=self.available_port, loop=self.loop)
         self.data_ports.put_nowait(self.available_port)
         self.available_port = None
 
@@ -220,17 +272,26 @@ class FTPServer(QObject):
                 self.path = path[0]
             else:
                 if self.message[1].startswith('/'):
-                    self.path = self.message[1]
+                    self.path = self.rootpath + self.message[1]
                 else:
-                    self.path = self.path + self.message[1]
+                    self.path = self.message[1]
         else:
-            self.path = '/'
+            for i in self.username_info:
+                if self.username == i['Name']:
+                    self.path = i['SharedFolder']
+                    break
+            else:
+                self.path = '/'
         print(self.path)
         self.pwd()
 
     def mkd(self):
         if not os.path.exists(self.message[1]):
-            os.makedirs(self.message[1])
+            if self.message[1].startswith('/'):
+                dirpath = self.rootpath + self.message[1]
+            else:
+                dirpath = self.message[1]
+            os.makedirs(dirpath)
             self.respond("257" , "\"{}\" directory created.".format(self.message[1]))
 
     def type(self):
@@ -289,6 +350,7 @@ class FTPServer(QObject):
         # Close the server
     @pyqtSlot()
     def close(self):
+        self.stop.emit()
         self.server.close()
         # self.loop.run_until_complete(self.server.wait_closed())
         # self.loop.close()

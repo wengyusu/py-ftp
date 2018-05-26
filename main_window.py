@@ -207,6 +207,7 @@ class ServerMainWindow(QMainWindow):
             self.server.upload.connect(self.updateUploadFlow)
             self.server.download.connect(self.updateDownloadFlow)
             self.server.disconnect.connect(self.removeConnectionItem)
+            self.server.stop.connect(self.removeAllConnectionItem)
             self.server.begin.emit()
             self.msgWidget.append("Start successfully.")
 
@@ -275,6 +276,10 @@ class ServerMainWindow(QMainWindow):
             if self.connectList.item(index, 0).text() == username:
                 if self.connectList.item(index, 1).text() == ip:
                     self.connectList.removeRow(index)
+
+    def removeAllConnectionItem(self):
+        for index in range(self.connectList.rowCount()):
+            self.connectList.removeRow(index)
 
     def updateUploadFlow(self, size):
         self.uploadflow = self.uploadflow + int(size)
