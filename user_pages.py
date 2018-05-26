@@ -31,7 +31,7 @@ class UserPage(QVBoxLayout):
         self.passwordEdit = QLineEdit()
 
         accountSettingLayout = QHBoxLayout()
-        accountSettingLayout.addWidget(self.passwordCheckBox)
+        # accountSettingLayout.addWidget(self.passwordCheckBox)
         accountSettingLayout.addWidget(self.passwordEdit)
         self.accountSettingBox.setLayout(accountSettingLayout)
 
@@ -39,6 +39,7 @@ class UserPage(QVBoxLayout):
         self.sharedFolderBox = QGroupBox('Shared folder')
 
         self.sharedFolderEdit = QLineEdit()
+        self.sharedFolderEdit.setReadOnly(True);
 
         self.chooseButton = QPushButton('Choose...')
         self.chooseButton.clicked.connect(self.chooseButtonClicked)

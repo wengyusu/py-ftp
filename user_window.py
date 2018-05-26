@@ -209,10 +209,10 @@ class UserWindow(QDialog):
             userItem.setText(user['Name'])
             userItem.page = UserPage()
 
-            if user['UsePassword']:
-                userItem.page.passwordCheckBox.setChecked(True)
-            else:
-                userItem.page.passwordCheckBox.setChecked(False)
+            # if user['UsePassword']:
+            #     userItem.page.passwordCheckBox.setChecked(True)
+            # else:
+            #     userItem.page.passwordCheckBox.setChecked(False)
 
             userItem.page.passwordEdit.setText(user['Password'])
             userItem.page.sharedFolderEdit.setText(user['SharedFolder'])
@@ -234,12 +234,16 @@ class UserWindow(QDialog):
             itemJsonList = []
             for index in range(self.columnTable.rowCount()):
                 item = self.columnTable.item(index, 0)
-                if item.page.passwordCheckBox.isChecked() == True:
-                    itemJsonList.append({"Name": item.text(), "UsePassword": 1, "Password": item.page.passwordEdit.text(),
-                                         "SharedFolder": item.page.sharedFolderEdit.text()})
-                else:
-                    itemJsonList.append({"Name": item.text(), "UsePassword": 0, "Password": item.page.passwordEdit.text(),
-                                         "SharedFolder": item.page.sharedFolderEdit.text()})
+                # if item.page.passwordCheckBox.isChecked() == True:
+                #     itemJsonList.append({"Name": item.text(), "UsePassword": 1, "Password": item.page.passwordEdit.text(),
+                #                          "SharedFolder": item.page.sharedFolderEdit.text()})
+                # else:
+                #     itemJsonList.append({"Name": item.text(), "UsePassword": 0, "Password": item.page.passwordEdit.text(),
+                #                          "SharedFolder": item.page.sharedFolderEdit.text()})
+
+                itemJsonList.append({"Name": item.text(), "Password": item.page.passwordEdit.text(),
+                                     "SharedFolder": item.page.sharedFolderEdit.text()})
+
             lw_j['Users'] = itemJsonList
             json.dump(lw_j, lw_f)
         pass
