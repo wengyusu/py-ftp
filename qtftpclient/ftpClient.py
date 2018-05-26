@@ -563,23 +563,27 @@ class client(QMainWindow):
                 else:
                     localName = self.downloadingTask[0]['filename']
                 with open(self.downloadingTask[0]['localpath'] + '/' + localName, 'wb') as fp:
+                    if self.downloadingTask[0]['serverpath']=='/':
+                        tempserverpath='/' + self.downloadingTask[0]['filename']
+                    else:
+                        tempserverpath =self.downloadingTask[0]['serverpath']+ '/' + self.downloadingTask[0]['filename']
                     try:
-                        self.FTP.retrbinary('RETR ' + self.downloadingTask[0]['serverpath'] + '/' + self.downloadingTask[0]['filename'],
-                                                fp.write, 102400)
+                        self.FTP.retrbinary('RETR ' + tempserverpath, fp.write, 10240)
                     except ftplib.error_temp:
                         self.reconnect()
-                        self.FTP.retrbinary('RETR ' + self.downloadingTask[0]['serverpath'] + '/' + self.downloadingTask[0]['filename'],
-                                                fp.write, 102400)
+                        self.FTP.retrbinary('RETR ' + tempserverpath, fp.write, 10240)
                     self.FTP.set_debuglevel(0)
             elif self.downloadingTask[0]['direction'] == '-->':
+                if self.downloadingTask[0]['serverpath'] == '/':
+                    tempserverpath = '/' + self.downloadingTask[0]['filename']
+                else:
+                    tempserverpath = self.downloadingTask[0]['serverpath'] + '/' + self.downloadingTask[0]['filename']
                 with open(self.downloadingTask[0]['localpath'] + '/' + self.downloadingTask[0]['filename'], 'rb') as fp:
                     try:
-                        self.FTP.storbinary('STOR ' + self.downloadingTask[0]['serverpath'] + '/' + self.downloadingTask[0]['filename'], fp,
-                                                102400)
+                        self.FTP.storbinary('STOR ' + tempserverpath, fp, 10240)
                     except ftplib.error_temp:
                         self.reconnect()
-                        self.FTP.retrbinary('RETR ' + self.downloadingTask[0]['serverpath'] + '/' + self.downloadingTask[0]['filename'],
-                                                fp.write, 102400)
+                        self.FTP.storbinary('STOR ' + tempserverpath, fp, 10240)
                     self.FTP.set_debuglevel(0)
             self.Mutex.release()
             self.lock.acquire()
