@@ -8,7 +8,9 @@ class GeneralPage(QVBoxLayout):
     connectionBox = None
     timeoutBox = None
 
+    edit1 = None
     edit2 = None
+    edit3 = None
 
     def __init__(self):
         super(GeneralPage, self).__init__()
@@ -44,13 +46,12 @@ class GeneralPage(QVBoxLayout):
 
     def initTimeoutBox(self):
         self.timeoutBox = QGroupBox('Timeout settings')
-        self.timeoutBox.setEnabled(False)
 
         timeoutLayout = QHBoxLayout()
         label1 = QLabel('Connection timeout:')
         timeoutLayout.addWidget(label1)
-        edit = QLineEdit('300')
-        timeoutLayout.addWidget(edit)
+        self.edit3 = QLineEdit('300')
+        timeoutLayout.addWidget(self.edit3)
         label2 = QLabel('in seconds(1-9999, 0 for no timeout).')
         timeoutLayout.addWidget(label2)
 
