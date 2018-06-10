@@ -195,12 +195,15 @@ class ServerMainWindow(QMainWindow):
             with open("setting.json", 'r') as f:
                 config = json.load(f)
                 port = config['Port']
+                timeout = config["Timeout"]
                 username_info = config['Users']
                 whitelist = config['IPAllowed']
                 blacklist = config['IPBanned']
+                upspeed = config["UploadSpeedLimit"]
+                dwspeed = config["DownloadSpeedLimit"]
                 maxcon = config['MaxConnectionCount']
 
-            self.server = server.FTPServer(port=port,whitelist=whitelist,blacklist=blacklist,username_info = username_info,timeout=60.0,maxcon=maxcon)
+            self.server = server.FTPServer(port=port,whitelist=whitelist,blacklist=blacklist,username_info = username_info,timeout=60.0,maxcon=maxcon,timeout=timeout,upspeed=upspeed,dwspeed=dwspeed)
             self.server.moveToThread(self.thread)
             self.server.begin.connect(self.server.start)
             self.server.onconnect.connect(self.addConnectionItem)

@@ -11,10 +11,12 @@ class FTPServer(QObject):
     upload = pyqtSignal(str)
     download = pyqtSignal(str)
     disconnect = pyqtSignal(str,str)
-    def __init__(self, host="0.0.0.0", port=21, parent=None,whitelist=[],blacklist=[],username_info = [],timeout=60.0,maxcon = 0):
+    def __init__(self, host="0.0.0.0", port=21, parent=None,whitelist=[],blacklist=[],username_info = [],timeout=60.0,maxcon = 0,upspeed=0,dwspeed=0):
         super(FTPServer, self).__init__(parent)
         self.maxcon = maxcon
         self.con = 0
+        self.upspeed = upspeed
+        self.dwspeed = dwspeed
         self.whitelist = whitelist
         self.blacklist = blacklist
         self.timeout = timeout
@@ -339,7 +341,7 @@ class FTPServer(QObject):
 
     @pyqtSlot()
     def start(self):
-        coro = asyncio.start_server(self.handle_echo, self.host, self.port, loop=self.loop)
+        coro = asyncio.start_server(self.handle_echo, self.host, self.port, loop=self.loop,limit=self.upspeed)
         self.server = self.loop.run_until_complete(coro)
 
         # Serve requests until Ctrl+C is pressed
