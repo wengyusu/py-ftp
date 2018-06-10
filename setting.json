@@ -1,1 +1,2 @@
 {"Port": 333, "MaxConnectionCount": 1000, "Timeout": 3, "IPAllowed": ["192.168.1.1"], "IPBanned": ["192.168.1.3"], "UploadSpeedLimit": 109, "DownloadSpeedLimit": 109, "Users": [{"Name": "jhkhgj", "UsePassword": 1, "Password": "w4ert", "SharedFolder": "/home/wangzichen/anaconda3"}]}
+
