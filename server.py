@@ -45,8 +45,8 @@ class FTPServer(QObject):
         self.port = port
         self.username = None
         self.message = None
-        self.rootpath = './'
-        self.path = '/'
+        self.rootpath = os.getcwd()
+        self.path = self.rootpath
         self.dtp_loop = asyncio.new_event_loop()
         self.ports = [port for port in range(10000, 10100)]
         self.available_port = None
@@ -281,7 +281,7 @@ class FTPServer(QObject):
                     self.path = i['SharedFolder']
                     break
             else:
-                self.path = '/'
+                self.path = self.rootpath
         print(self.path)
         self.pwd()
 
@@ -315,7 +315,7 @@ class FTPServer(QObject):
         self.available_port = await self.data_ports.get()
         addr = "({},{},{},{},{},{})".format(*host,int(self.available_port)// 2**8,self.available_port % (2**8))
         self.respond("227" ,"Entering passive mode {}.".format(addr))
-        if self.available_port is not None:
+        if self.available_port is not None: 
             self.passive_server = await asyncio.start_server(self.dtp_handler, host=self.host[0], port=self.available_port, loop=self.loop)
 
     async def stor(self):
@@ -327,11 +327,13 @@ class FTPServer(QObject):
         self.available_port = None
 
     def ip_handle(self, ip):
-        if self.whitelist != []:
+        if self.whitelist != [] and self.whitelist != [""]:
             if ip not in self.whitelist:
+                print("{} is not in white list".format(ip))
                 return False
         else:
             if ip in self.blacklist:
+                print("{} is in blacklist".format(ip))
                 return False
         return True
 
