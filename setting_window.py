@@ -15,9 +15,11 @@ class SettingWindow(QDialog):
 
     geneSet = None
     ipFilter = None
+    speedLimit = None
 
     genePage = None
     filterPage = None
+    speedPage = None
 
     def __init__(self):
         super(SettingWindow, self).__init__()
@@ -27,6 +29,7 @@ class SettingWindow(QDialog):
 
         self.genePage = GeneralPage()
         self.filterPage = FilterPage()
+        self.speedPage = SpeedPage()
         self.initSetting()
         self.initUi()
 
@@ -61,6 +64,10 @@ class SettingWindow(QDialog):
         self.ipFilter.setText(0, 'IP Filter')
         self.columnTree.addTopLevelItem(self.ipFilter)
 
+        self.speedLimit = QTreeWidgetItem()
+        self.speedLimit.setText(0, 'Speed Limit')
+        self.columnTree.addTopLevelItem(self.speedLimit)
+
         self.columnTree.itemClicked.connect(self.itemClickedTriggered)
 
     def itemClickedTriggered(self):
@@ -92,6 +99,12 @@ class SettingWindow(QDialog):
             self.rightLayout.editAllowed.show()
             self.rightLayout.labelBanned.show()
             self.rightLayout.editBanned.show()
+        elif self.speedLimit.isSelected():
+            self.rightLayout = self.speedPage
+            self.rightLayout.downloadBox.show()
+            self.rightLayout.uploadBox.show()
+            self.rightLayout.downloadSpeedWidget.show()
+            self.rightLayout.uploadSpeedWidget.show()
         else:
             pass
 
@@ -133,6 +146,8 @@ class SettingWindow(QDialog):
 
         self.genePage.edit2.setText(str(load_j['MaxConnectionCount']))
 
+        self.genePage.edit3.setText(str(load_j['Timeout']))
+
         allowedList = load_j['IPAllowed']
         for item in allowedList:
             self.filterPage.editAllowed.append(item)
@@ -140,6 +155,24 @@ class SettingWindow(QDialog):
         bannedList = load_j['IPBanned']
         for item in bannedList:
             self.filterPage.editBanned.append(item)
+
+        downSpeed = load_j['DownloadSpeedLimit']
+        if downSpeed == 0:
+            self.speedPage.noLimitButton1.setChecked(True)
+            self.speedPage.downloadSpeedWidget.edit.setEnabled(False)
+        else:
+            self.speedPage.limitButton1.setChecked(True)
+            self.speedPage.downloadSpeedWidget.edit.setEnabled(True)
+            self.speedPage.downloadSpeedWidget.edit.setText(str(downSpeed))
+
+        upSpeed = load_j['UploadSpeedLimit']
+        if upSpeed == 0:
+            self.speedPage.noLimitButton2.setChecked(True)
+            self.speedPage.uploadSpeedWidget.edit.setEnabled(False)
+        else:
+            self.speedPage.limitButton2.setChecked(True)
+            self.speedPage.uploadSpeedWidget.edit.setEnabled(True)
+            self.speedPage.uploadSpeedWidget.edit.setText(str(upSpeed))
 
 
     def updateSetting(self):
@@ -152,6 +185,8 @@ class SettingWindow(QDialog):
 
             lw_j['MaxConnectionCount'] = int(self.genePage.edit2.text())
 
+            lw_j['Timeout'] = int(self.genePage.edit3.text())
+
             allowedList = self.filterPage.editAllowed.toPlainText().split('\n')
             allowedJsonList = []
             for item in allowedList:
@@ -163,5 +198,11 @@ class SettingWindow(QDialog):
             for item in bannedList:
                 bannedJsonList.append(item)
             lw_j['IPBanned'] = bannedJsonList
+
+            downSpeed = self.speedPage.downloadSpeedWidget.edit.text()
+            lw_j['DownloadSpeedLimit'] = int(downSpeed)
+
+            upSpeed = self.speedPage.uploadSpeedWidget.edit.text()
+            lw_j['UploadSpeedLimit'] = int(upSpeed)
 
             json.dump(lw_j, lw_f)
